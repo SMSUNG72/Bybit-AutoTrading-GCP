@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Bybit Cobweb Trader - GUI (Front)</title>
+<style>
+  :root{
+    --bg:#000; --panel:#121212; --border:#2b2b2b; --text:#fff;
+    --blue:#1e5eff; --blue-hover:#1649c9; --muted:#8f96a2;
+    --mono: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+    --status-on: #22c55e; --status-off: #6b7280; --status-fail: #ef4444;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans KR","Apple SD Gothic Neo",Arial,sans-serif}
+  .container{max-width:1200px;margin:0 auto;padding:12px}
+  .titlebar{display:flex;justify-content:space-between;align-items:center;margin:4px 0 10px}
+  .title{font-size:15px;font-weight:600}
+  .status{font-size:12px;opacity:.85}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:8px;margin-top:10px}
+  .card-body{padding:10px 12px}
+  .card-header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);padding:8px 12px}
+  .top-line{display:flex;align-items:center;gap:12px;flex-wrap:nowrap}
+  .top-line label{font-size:13px}
+  .suffix{min-width:24px;text-align:center;background:#0b0b0b;border:1px solid var(--border);border-radius:6px;padding:6px 4px}
+  .checkbox{display:flex;align-items:center;gap:6px;font-size:13px;margin-left:auto}
+  .checkbox input{width:16px;height:16px}
+  input[type="text"],input[type="number"],select,textarea{
+    background:#0b0b0b; color:var(--text); border:1px solid var(--border);
+    padding:6px 8px; border-radius:6px; outline:none; appearance:none;
+  }
+  input[disabled], input[readonly]{opacity:.7; cursor: not-allowed;}
+  .btn{background:var(--blue);color:#fff;border:none;border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:600}
+  .btn:hover{background:var(--blue-hover)}
+  .btn-sm{padding:6px 10px;font-size:13px}
+  .btn-outline{background:transparent;border:1px solid var(--blue);color:#fff}
+  .btn-outline:hover{background:var(--blue)}
+  .step-row{display:grid;gap:8px;align-items:center; margin-bottom: 8px;
+    grid-template-columns: 60px 90px 1fr 24px 100px 1fr;}
+  .muted{color:var(--muted)}
+  .tp-row{display:flex;align-items:center;gap:20px}
+  .tp-row .inline{display:flex;gap:6px;align-items:center}
+  .mono{font-family:var(--mono)}
+  textarea{resize:vertical;min-height:280px;width:100%}
+  .footer{display:flex;justify-content:space-between;align-items:center}
+</style>
+</head>
+<body>
+  <div class="container">
+
+    <div class="titlebar">
+      <div class="title">Bybit Cobweb Trader - GUI (Front)</div>
+      <div class="status" id="statusLabel">상태: 확인 중…</div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <div class="top-line">
+          <label>심볼</label>
+          <input id="ed_symbol" type="text" value="BTCUSDT" disabled style="width:120px">
+          <label>방향</label>
+          <select id="cmb_side" style="width:80px"><option>Long</option><option>Short</option></select>
+          <label>레버리지</label>
+          <input id="spn_lev" type="number" min="1" max="125" value="15" style="width:60px">
+          <span class="suffix">x</span>
+          <label>마진 모드</label>
+          <select id="cmb_margin" style="width:140px"><option>교차(Cross)</option><option>격리(Isolated)</option></select>
+          <label class="checkbox">
+            <input id="chk_first" type="checkbox" checked>
+            1차 시장가(진입 0 고정)
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div>회차별 설정</div>
+        <div>
+          <button id="btn_delete" class="btn btn-sm btn-outline">삭제</button>
+          <button id="btn_add" class="btn btn-sm">추가</button>
+        </div>
+      </div>
+      <div class="card-body" id="stepsWrap"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <div class="tp-row">
+          <div class="inline">
+            <label>익절</label>
+            <input id="spn_tp" type="number" value="4.5" step="0.1" style="width:70px">
+            <div class="suffix">%</div>
+          </div>
+          <label class="checkbox">
+            <input id="chk_loop" type="checkbox" checked> 반복 실행
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <textarea id="txt_log" class="mono" placeholder="여기에 실행 로그가 표시됩니다." readonly></textarea>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body footer">
+        <button id="btn_save" class="btn btn-outline">설정저장</button>
+        <div>
+          <button id="btn_start" class="btn">봇 시작하기</button>
+          <button id="btn_stop" class="btn" style="margin-left:8px; display:none;">봇 종료</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- JQuery 라이브러리를 먼저 불러옵니다 -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  
+  <!-- 실제 기능이 담긴 JavaScript 코드 -->
+  <script>
+    // 웹 페이지의 모든 요소가 로드된 후에 이 코드를 실행합니다.
+    $(document).ready(function() {
+
+        // --- 1. 자주 사용하는 HTML 요소들을 미리 찾아 변수에 저장 (효율성 증가) ---
+        const elements = {
+            statusLabel: $('#statusLabel'),
+            symbol: $('#ed_symbol'),
+            side: $('#cmb_side'),
+            leverage: $('#spn_lev'),
+            marginType: $('#cmb_margin'),
+            firstMarket: $('#chk_first'),
+            stepsWrap: $('#stepsWrap'), // 회차별 설정이 들어갈 영역
+            tp: $('#spn_tp'),
+            loop: $('#chk_loop'),
+            logBox: $('#txt_log'),
+            btnAdd: $('#btn_add'),
+            btnDelete: $('#btn_delete'),
+            btnSave: $('#btn_save'),
+            btnStart: $('#btn_start'),
+            btnStop: $('#btn_stop')
+        };
+
+        // --- 2. 로그 메시지를 화면에 표시하는 함수 ---
+        function log(message) {
+            const timestamp = new Date().toLocaleString();
+            const currentLog = elements.logBox.val();
+            // 새 로그를 맨 위에 추가합니다.
+            elements.logBox.val(`[${timestamp}] ${message}\n` + currentLog);
+        }
+
+        // --- 3. 그리드 행(회차)을 동적으로 생성하는 기능 ---
+        function createStepRow(index, gap, usdt) {
+            // 한 줄(row)을 구성하는 HTML 코드입니다.
+            const row = `
+                <div class="step-row" data-index="${index}">
+                    <div class="no muted">No ${String(index).padStart(2, '0')}</div>
+                    <div class="muted">진입간격</div>
+                    <input type="number" class="gap-input" step="0.1" value="${gap}" ${index === 1 ? 'readonly' : ''}>
+                    <div class="suffix">%</div>
+                    <div class="muted">회차별 증거금</div>
+                    <input type="number" class="usdt-input" value="${usdt}">
+                </div>`;
+            return row;
+        }
+
+        function renderSteps(steps) {
+            elements.stepsWrap.empty(); // 기존 행들을 모두 지웁니다.
+            steps.forEach((step, idx) => {
+                // 각 행을 만들어서 화면에 추가합니다.
+                elements.stepsWrap.append(createStepRow(idx + 1, step.gap, step.usdt));
+            });
+        }
+
+        // --- 4. 현재 화면의 모든 설정값을 하나의 객체로 수집하는 기능 ---
+        function collectSettings() {
+            const steps = [];
+            elements.stepsWrap.find('.step-row').each(function() {
+                steps.push({
+                    gap: parseFloat($(this).find('.gap-input').val()),
+                    usdt: parseFloat($(this).find('.usdt-input').val())
+                });
+            });
+            return {
+                symbol: elements.symbol.val(),
+                side: elements.side.val() === 'Long' ? 'Buy' : 'Sell',
+                leverage: parseInt(elements.leverage.val()),
+                leveragetype: elements.marginType.val().includes('Cross') ? 'Cross' : 'Isolated',
+                startmarketprice: elements.firstMarket.is(':checked') ? 'Yes' : 'No',
+                profittake: parseFloat(elements.tp.val()),
+                loop: elements.loop.is(':checked') ? 'Yes' : 'No',
+                steps: steps
+            };
+        }
+
+        // --- 5. 버튼 클릭 이벤트 처리 ---
+        elements.btnAdd.on('click', function() {
+            const newIndex = elements.stepsWrap.find('.step-row').length + 1;
+            elements.stepsWrap.append(createStepRow(newIndex, 0.1, 0));
+            log('회차 추가');
+        });
+
+        elements.btnDelete.on('click', function() {
+            if (elements.stepsWrap.find('.step-row').length > 1) {
+                elements.stepsWrap.find('.step-row:last').remove();
+                log('회차 삭제');
+            } else {
+                log('1차는 삭제할 수 없습니다.');
+            }
+        });
+
+        elements.btnSave.on('click', function() {
+            const settings = collectSettings();
+            localStorage.setItem('botSettings', JSON.stringify(settings));
+            log('설정을 브라우저에 저장했습니다.');
+        });
+
+        function loadSettings() {
+            const savedSettings = localStorage.getItem('botSettings');
+            if (savedSettings) {
+                const settings = JSON.parse(savedSettings);
+                elements.symbol.val(settings.symbol);
+                elements.side.val(settings.side === 'Buy' ? 'Long' : 'Short');
+                elements.leverage.val(settings.leverage);
+                elements.marginType.val(settings.leveragetype === 'Cross' ? '교차(Cross)' : '격리(Isolated)');
+                elements.firstMarket.prop('checked', settings.startmarketprice === 'Yes');
+                elements.tp.val(settings.profittake);
+                elements.loop.prop('checked', settings.loop === 'Yes');
+                renderSteps(settings.steps);
+                log('저장된 설정을 불러왔습니다.');
+            } else {
+                const defaultSteps = [
+                  {gap:0.0, usdt:41}, {gap:0.4, usdt:82}, {gap:0.8, usdt:164},
+                  {gap:1.0, usdt:328}, {gap:1.5, usdt:656}, {gap:3.0, usdt:1312}, {gap:5.0, usdt:2624},
+                ];
+                renderSteps(defaultSteps);
+            }
+        }
+
+        // --- 6. 서버와 통신하는 기능들 ---
+        function checkBotStatus() {
+            $.get('/status').done(function(data) {
+                if (data.is_running) {
+                    elements.statusLabel.text('상태: 실행중').css('color', 'var(--status-on)');
+                    elements.btnStart.hide();
+                    elements.btnStop.show();
+                } else {
+                    elements.statusLabel.text('상태: 정지').css('color', 'var(--muted)');
+                    elements.btnStart.show();
+                    elements.btnStop.hide();
+                }
+                if(data.logs && data.logs.length > 0) {
+                     elements.logBox.val(data.logs.join('\n'));
+                }
+            }).fail(function() {
+                elements.statusLabel.text('상태: 연결 실패').css('color', 'var(--status-fail)');
+            });
+        }
+
+        elements.btnStart.on('click', function() {
+            log('봇 시작을 요청합니다...');
+            $.ajax({
+                url: '/start', type: 'POST', contentType: 'application/json',
+                data: JSON.stringify(collectSettings()),
+                success: function(response) {
+                    log('서버 응답: ' + response.message);
+                    setTimeout(checkBotStatus, 1000);
+                },
+                error: function() { log('오류: 봇 시작 요청 실패'); }
+            });
+        });
+
+        elements.btnStop.on('click', function() {
+            log('봇 종료를 요청합니다...');
+            $.ajax({
+                url: '/stop', type: 'POST',
+                success: function(response) {
+                    log('서버 응답: ' + response.message);
+                    setTimeout(checkBotStatus, 1000);
+                },
+                error: function() { log('오류: 봇 종료 요청 실패'); }
+            });
+        });
+
+        // --- 7. 초기화 (페이지가 처음 로드될 때 실행되는 코드) ---
+        loadSettings(); // 저장된 설정이 있으면 불러오고, 없으면 기본값으로 행 생성
+        
+        setInterval(checkBotStatus, 5000); // 5초마다 봇 상태를 자동으로 확인
+        checkBotStatus(); // 페이지를 열자마자 즉시 상태를 확인
+    });
+  </script>
+</body>
+</html>
