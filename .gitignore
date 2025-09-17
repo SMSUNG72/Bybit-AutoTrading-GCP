@@ -1,3 +1,16 @@
-.env
+# Python
 __pycache__/
-nohup.out
+*.pyc
+*.pyo
+*.pyd
+
+# venv
+.venv/
+venv/
+
+# 환경/로그
+.env
+*.log
+
+# 기타(원하면 추가)
+*.sqlite*

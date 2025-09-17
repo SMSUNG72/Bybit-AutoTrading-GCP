@@ -7,6 +7,7 @@ import smtplib
 from email.mime.text import MIMEText
 import random
 import string
+import os  # ★ 추가: .env(환경변수)에서 이메일 설정 읽기
 
 # 로그 설정
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -27,16 +28,18 @@ class TradingBot:
         self.logs = []
         self.instrument_info = {}
         self.last_position_state = {"size": None, "avg_price": None}
-        self.tp_order_link_id = None # 익절 주문 ID를 저장할 변수
+        self.tp_order_link_id = None  # 익절 주문 ID 저장
 
-        # --- 이메일 설정 (원본 코드와 동일) ---
+        # --- 이메일 설정: .env(환경변수) 우선, 미설정이면 발송 자체를 건너뜀(하드코딩 제거) ---
+        # 필요 키:
+        #   SMTP_SERVER, SMTP_PORT(기본 465), SMTP_SENDER, SMTP_RECEIVER, SMTP_USER, SMTP_PASSWORD
         self.email_config = {
-            "smtp_server": "smtp.naver.com",
-            "port": 465,
-            "sender_email": "smsung2@naver.com",
-            "receiver_email": "smsung2@naver.com",
-            "user_id": "smsung2",
-            "password": "SBDV8PZYKC4X" # 원본 코드의 비밀번호
+            "smtp_server":    os.getenv("SMTP_SERVER"),
+            "port":           int(os.getenv("SMTP_PORT", "465")),
+            "sender_email":   os.getenv("SMTP_SENDER"),
+            "receiver_email": os.getenv("SMTP_RECEIVER"),
+            "user_id":        os.getenv("SMTP_USER"),
+            "password":       os.getenv("SMTP_PASSWORD"),
         }
 
     def log(self, message):
@@ -45,8 +48,17 @@ class TradingBot:
         self.logs.insert(0, log_entry)
         self.logs = self.logs[:100]
 
+    # ★ 추가: 이메일 발송 가능 여부 체크
+    def _email_enabled(self):
+        cfg = self.email_config or {}
+        required = ["smtp_server", "port", "sender_email", "receiver_email", "user_id", "password"]
+        return all(cfg.get(k) for k in required)
+
     def _send_email(self, subject, text):
         try:
+            if not self._email_enabled():
+                self.log("이메일 설정이 없거나 불완전하여 발송을 생략합니다.")
+                return
             cfg = self.email_config
             msg = MIMEText(text)
             msg['Subject'] = subject
@@ -115,7 +127,7 @@ class TradingBot:
             if float(order_params['qty']) < self.instrument_info['min_order_qty']:
                 self.log(f"경고: 계산된 주문 수량({order_params['qty']})이 최소 주문 수량({self.instrument_info['min_order_qty']})보다 작아 주문을 실행하지 않습니다.")
                 return None
-            
+
             self.log(f"주문 시도: {order_params}")
             response = self.session.place_order(**order_params)
             self.log(f"주문 응답: {response.get('retMsg')}")
@@ -129,13 +141,13 @@ class TradingBot:
 
     def _run(self):
         self.log(f"자동매매 로직을 시작합니다. 설정: {self.params}")
-        
+
         try:
             symbol = self.params['symbol']
             leverage = self.params['leverage']
-            
+
             self._get_instrument_info(symbol)
-            
+
             try:
                 self.session.switch_position_mode(category="linear", symbol=symbol, mode=3)
                 self.log("계정을 헤지 모드로 설정했습니다.")
@@ -149,8 +161,10 @@ class TradingBot:
                 self.session.set_leverage(category="linear", symbol=symbol, buyLeverage=str(leverage), sellLeverage=str(leverage))
                 self.log(f"레버리지를 {leverage}x로 설정했습니다.")
             except Exception as e:
-                if "110043" in str(e): self.log(f"정보: 레버리지가 이미 {leverage}x로 설정되어 있어 건너뜁니다.")
-                else: raise e
+                if "110043" in str(e):
+                    self.log(f"정보: 레버리지가 이미 {leverage}x로 설정되어 있어 건너뜁니다.")
+                else:
+                    raise e
 
             self.session.cancel_all_orders(category="linear", symbol=symbol)
             self.log("시작 전 모든 대기 주문을 취소했습니다.")
@@ -162,7 +176,7 @@ class TradingBot:
             self.is_running = False
             return
 
-        is_first_run = True # 최초 실행 여부를 판단하기 위한 변수
+        is_first_run = True  # 최초 실행 여부
 
         while self.is_running and not self.stop_event.is_set():
             try:
@@ -171,38 +185,39 @@ class TradingBot:
 
                 pos_res = self.session.get_positions(category="linear", symbol=symbol, positionIdx=position_idx_param)
                 position = pos_res['result']['list'][0]
-                
+
                 current_size = float(position['size'])
                 avg_price = float(position['avgPrice']) if current_size > 0 else 0
                 orders_res = self.session.get_open_orders(category="linear", symbol=symbol)
                 open_orders = orders_res['result']['list']
 
                 if current_size == 0:
-                    # --- 최종 수정: 익절 후 와 최초 실행을 구분하는 로직 ---
-                    if not is_first_run: # 최초 실행이 아닐 경우 (즉, 익절 후)
+                    # 익절 후와 최초 실행을 구분
+                    if not is_first_run:
                         self.log("포지션이 익절로 종료되었습니다.")
                         self._send_email("포지션 익절", f"{symbol} 포지션이 성공적으로 종료되었습니다.")
-                        
+
                         if len(open_orders) > 0:
                             self.log("남은 주문을 취소합니다.")
                             self.session.cancel_all_orders(category="linear", symbol=symbol)
-                        
+
                         if self.params.get('loop', 'Yes') == 'No':
                             self.log("반복 실행이 꺼져있어 봇을 중지합니다."); self.stop(); return
-                        
+
                         self.log("60초 후 새로운 사이클을 시작합니다.")
                         self.stop_event.wait(60)
-                        if not self.is_running: break
-                    
+                        if not self.is_running:
+                            break
+
                     self.last_position_state = {"size": None, "avg_price": None}
                     self.tp_order_link_id = None
-                    is_first_run = False # 다음부터는 최초 실행이 아님
+                    is_first_run = False
 
                     self.log("포지션 없음. 신규 진입 및 그리드 주문을 설정합니다.")
                     steps = self.params['steps']
                     price_res = self.session.get_tickers(category="linear", symbol=symbol)
                     last_price = float(price_res['result']['list'][0]['lastPrice'])
-                    
+
                     if self.params.get('startmarketprice', 'Yes') == 'Yes':
                         qty1 = (steps[0]['usdt'] * leverage) / last_price
                         self._place_order({"category": "linear", "symbol": symbol, "side": side_param, "orderType": "Market", "qty": qty1, "positionIdx": position_idx_param})
@@ -222,39 +237,39 @@ class TradingBot:
                         qty = (money * leverage) / price
                         self._place_order({"category": "linear", "symbol": symbol, "side": side_param, "orderType": "Limit", "qty": qty, "price": price, "positionIdx": position_idx_param})
                         current_calc_price = price
-                
-                else: # 포지션이 있는 경우
+
+                else:
                     self.log(f"포지션 보유 중 (크기: {current_size}, 평단: {avg_price}). 익절 주문을 관리합니다.")
                     position_side = position['side']
                     tp_side = 'Sell' if position_side == 'Buy' else 'Buy'
-                    
+
                     tp_rate = self.params['profittake']
                     leverage_in_pos = float(position['leverage'])
-                    
+
                     if position_side == 'Buy':
                         tp_price = avg_price * (1 + (tp_rate / 100 / leverage_in_pos))
                     else:
                         tp_price = avg_price * (1 - (tp_rate / 100 / leverage_in_pos))
-                    
+
                     existing_tp_order = None
                     if self.tp_order_link_id:
                         for o in open_orders:
                             if o.get('orderLinkId') == self.tp_order_link_id:
                                 existing_tp_order = o
                                 break
-                    
+
                     position_changed = (current_size != self.last_position_state.get('size')) or \
                                        (avg_price != self.last_position_state.get('avg_price'))
 
                     if position_changed and self.last_position_state.get("size") is not None:
-                         self.log("물타기 주문 체결 감지! 포지션이 변경되었습니다.")
-                         self._send_email("물타기 주문 체결", f"{symbol} 포지션 크기가 {self.last_position_state.get('size')} -> {current_size}로 변경되었습니다.")
+                        self.log("물타기 주문 체결 감지! 포지션이 변경되었습니다.")
+                        self._send_email("물타기 주문 체결", f"{symbol} 포지션 크기가 {self.last_position_state.get('size')} -> {current_size}로 변경되었습니다.")
 
                     if not existing_tp_order or position_changed:
                         if existing_tp_order:
                             self.log("포지션 변경 감지. 기존 익절 주문을 취소합니다.")
                             self.session.cancel_order(category="linear", symbol=symbol, orderLinkId=self.tp_order_link_id)
-                        
+
                         self.log(f"새로운 익절 주문을 설정합니다. 가격: {tp_price}, 수량: {current_size}")
                         new_tp_id = "tp_" + ''.join(random.choices(string.ascii_letters + string.digits, k=8))
                         response = self._place_order({
@@ -265,7 +280,7 @@ class TradingBot:
                         })
                         if response:
                             self.tp_order_link_id = new_tp_id
-                        
+
                         self.last_position_state = {"size": current_size, "avg_price": avg_price}
                     else:
                         self.log("익절 주문이 이미 올바르게 설정되어 있습니다.")
