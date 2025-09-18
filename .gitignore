@@ -14,3 +14,7 @@ venv/
 
 # 기타(원하면 추가)
 *.sqlite*
+
+# backup snapshots
+app.py250905
+trading_bot.py20250905
